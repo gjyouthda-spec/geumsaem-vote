@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>금샘런웨이페스타 · 관리자</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main class="wrap wide">
+  <img class="banner" style="max-width:900px;margin:0 auto 10px" src="banner.jpg" alt="금정구청소년 어울림마당 금샘런웨이페스타 · 2026.11.21(토) 14:00 · 온천천 어울마당">
+  <header class="brand"><div class="sub"><span>관리자</span></div></header>
+  <div id="app"></div>
+</main>
+<script src="config.js"></script>
+<script src="common.js"></script>
+<script>
+(function () {
+  if (configMissing()) return showConfigError();
+  const app = document.getElementById("app");
+  let pw = sessionStorage.getItem("gs_admin") || "";
+  let teams = [], results = [], started = false;
+
+  const STATUS = { waiting: "대기", open: "투표 중", closed: "마감" };
+  const AWARDS = ["대상", "최우수상", "우수상"];
+  const fmt = (n) => (n === null || n === undefined ? "-" : Number(n).toFixed(2));
+
+  async function adm(fn, args = {}) {
+    try { return await rpc(fn, { p_pw: pw, ...args }); }
+    catch (e) {
+      if (String(e.message).includes("unauthorized")) { sessionStorage.removeItem("gs_admin"); location.reload(); }
+      const m = String(e.message);
+      if (m.includes("duplicate_name")) toast("같은 이름의 팀이 이미 있어요");
+      else if (m.includes("empty_name")) toast("팀 이름을 입력해 주세요");
+      else if (m.includes("too_short")) toast("비밀번호는 6자 이상");
+      else toast("오류: " + m);
+      throw e;
+    }
+  }
+
+  function loginView() {
+    app.innerHTML = `<div class="card" style="max-width:420px;margin:0 auto">
+      <h2>관리자 로그인</h2>
+      <input id="pw" type="password" class="text" placeholder="관리자 비밀번호" autocomplete="current-password">
+      <p id="err" class="warn" style="min-height:18px"></p>
+      <button id="go" class="btn primary big">로그인</button></div>`;
+    const go = async () => {
+      const v = document.getElementById("pw").value;
+      try {
+        if (await rpc("admin_login", { p_pw: v })) { pw = v; sessionStorage.setItem("gs_admin", v); mainView(); }
+        else document.getElementById("err").textContent = "비밀번호가 맞지 않아요";
+      } catch { document.getElementById("err").textContent = "연결 오류"; }
+    };
+    document.getElementById("go").onclick = go;
+    document.getElementById("pw").onkeydown = (e) => e.key === "Enter" && go();
+  }
+
+  function mainView() {
+    const base = location.origin;
+    app.innerHTML = `
+      <div class="card toolbar links" style="justify-content:space-between">
+        <div class="toolbar">
+          <a href="screen" target="_blank" class="btn sm gold">📺 QR 송출 화면 열기</a>
+          <span class="muted" style="font-size:13px">관객: <a href="vote" target="_blank">${base}/vote</a> · 참가팀: <a href="team" target="_blank">${base}/team</a></span>
+        </div>
+        <div class="toolbar">
+          <button id="pwbtn" class="btn sm ghost">비밀번호 변경</button>
+          <button id="logout" class="btn sm ghost">로그아웃</button>
+        </div>
+      </div>
+      <div class="grid2">
+        <section class="card">
+          <h2>참가팀 · 투표 진행</h2>
+          <div class="toolbar" style="margin-bottom:10px">
+            <input id="newname" class="text" style="flex:1;min-width:160px" placeholder="새 팀 이름">
+            <button id="add" class="btn primary">팀 추가</button>
+          </div>
+          <div class="toolbar" style="margin-bottom:6px">
+            <button id="next" class="btn gold">▶ 다음 팀 투표 시작</button>
+            <button id="closeall" class="btn">■ 진행 중 투표 마감</button>
+          </div>
+          <p class="muted" style="font-size:12px;margin:4px 0 8px">한 팀을 '시작'하면 다른 팀 투표는 자동 마감됩니다. 팀 코드는 해당 팀 대표에게만 알려주세요.</p>
+          <div id="teams"></div>
+        </section>
+        <section class="card">
+          <h2>실시간 결과 <span class="muted" style="font-size:12px;font-weight:400">(관리자만 보임 · 3초마다 갱신)</span></h2>
+          <p class="muted" style="font-size:12px;margin-top:0">최종 = 참가팀 평균 × 0.7 + 관객 평균 × 0.3 (각 100점 기준)</p>
+          <div id="results"></div>
+          <details style="margin-top:14px">
+            <summary style="cursor:pointer;font-weight:700">📝 종이 투표 입력 (관객 · 데이터 안 되는 분)</summary>
+            <div class="toolbar" style="margin-top:10px">
+              <select id="pteam" class="text" style="flex:1;min-width:120px"></select>
+              <input id="pc" class="text" style="width:110px" type="number" min="0" max="50" placeholder="창의성 0~50">
+              <input id="pe" class="text" style="width:110px" type="number" min="0" max="50" placeholder="표현력 0~50">
+              <button id="padd" class="btn primary">입력</button>
+            </div>
+            <p class="muted" style="font-size:12px">한 장씩 입력하세요. 관객 표로 집계됩니다. (마감된 팀도 입력 가능)</p>
+          </details>
+          <div class="toolbar" style="margin-top:12px">
+            <button id="csv" class="btn sm">⬇ 결과 CSV(엑셀) 저장</button>
+            <button id="reset" class="btn sm danger">리허설용: 전체 투표 초기화</button>
+          </div>
+        </section>
+      </div>`;
+
+    document.getElementById("logout").onclick = () => { sessionStorage.removeItem("gs_admin"); location.reload(); };
+    document.getElementById("pwbtn").onclick = async () => {
+      const n = prompt("새 관리자 비밀번호 (6자 이상)");
+      if (!n) return;
+      if (n !== prompt("한 번 더 입력")) return toast("두 비밀번호가 달라요");
+      await adm("admin_change_pw", { p_new: n });
+      pw = n; sessionStorage.setItem("gs_admin", n); toast("비밀번호를 바꿨어요");
+    };
+    const addTeam = async () => {
+      const inp = document.getElementById("newname");
+      const name = inp.value.trim();
+      if (!name) return;
+      const r = await adm("admin_add_team", { p_name: name });
+      inp.value = ""; toast(`${r.name} 추가 · 코드 ${r.code}`, 3500); refresh();
+    };
+    document.getElementById("add").onclick = addTeam;
+    document.getElementById("newname").onkeydown = (e) => e.key === "Enter" && addTeam();
+    document.getElementById("next").onclick = async () => {
+      const open = teams.find((t) => t.status === "open");
+      const startIdx = open ? teams.indexOf(open) + 1 : 0;
+      const next = teams.slice(startIdx).find((t) => t.status === "waiting") || teams.find((t) => t.status === "waiting");
+      if (!next) return toast("대기 중인 팀이 없어요");
+      await adm("admin_set_status", { p_id: next.id, p_status: "open" });
+      toast(`${next.name} 투표 시작`); refresh();
+    };
+    document.getElementById("closeall").onclick = async () => {
+      const open = teams.filter((t) => t.status === "open");
+      if (!open.length) return toast("진행 중인 투표가 없어요");
+      for (const t of open) await adm("admin_set_status", { p_id: t.id, p_status: "closed" });
+      toast("마감했어요"); refresh();
+    };
+    document.getElementById("csv").onclick = downloadCsv;
+    document.getElementById("padd").onclick = async () => {
+      const team = document.getElementById("pteam").value;
+      const pc = document.getElementById("pc"), pe = document.getElementById("pe");
+      const c = Number(pc.value), e = Number(pe.value);
+      if (!team) return toast("팀을 고르세요");
+      if (pc.value === "" || pe.value === "" || !Number.isInteger(c) || !Number.isInteger(e) || c < 0 || c > 50 || e < 0 || e > 50)
+        return toast("점수는 0~50 정수로 입력하세요");
+      await adm("admin_add_paper_vote", { p_team: team, p_c: c, p_e: e });
+      const name = teams.find((t) => t.id === team)?.name || "";
+      pc.value = ""; pe.value = ""; pc.focus();
+      toast(`${name}에 종이 투표 ${c + e}점 입력됨`); refresh();
+    };
+    document.getElementById("reset").onclick = async () => {
+      if (!confirm("모든 투표를 지우고 팀 상태를 '대기'로 되돌립니다. (팀 목록·코드는 유지)\n리허설 후에만 사용하세요. 진행할까요?")) return;
+      if (prompt("확인을 위해 '초기화'라고 입력하세요") !== "초기화") return;
+      await adm("admin_reset_votes"); toast("초기화 완료"); refresh();
+    };
+    if (!started) { started = true; poll(refresh, 3000); } else refresh();
+  }
+
+  async function refresh() {
+    if (!pw || !document.getElementById("teams")) return;
+    [teams, results] = await Promise.all([adm("admin_teams"), adm("admin_results")]);
+    teams = teams || []; results = results || [];
+    renderTeams(); renderResults(); renderPaperSelect();
+  }
+
+  function renderPaperSelect() {
+    const sel = document.getElementById("pteam");
+    if (!sel || document.activeElement === sel) return;
+    const keep = sel.value;
+    sel.innerHTML = `<option value="">팀 선택</option>` + teams.map((t) => `<option value="${t.id}">${esc(t.name)}</option>`).join("");
+    if (teams.some((t) => t.id === keep)) sel.value = keep;
+  }
+
+  function renderTeams() {
+    const el = document.getElementById("teams");
+    if (document.activeElement && el.contains(document.activeElement) && document.activeElement.tagName === "INPUT") return;
+    const n = teams.length;
+    if (!n) { el.innerHTML = `<p class="muted center">아직 팀이 없어요. 위에서 추가하세요.</p>`; return; }
+    el.innerHTML = `<table><thead><tr>
+        <th>순서</th><th>팀</th><th>코드</th><th>상태</th><th class="num">받은 표<br>(팀/관객)</th><th class="num">투표함</th><th></th>
+      </tr></thead><tbody>${teams.map((t, i) => `
+      <tr class="${t.status === "open" ? "open-row" : ""}">
+        <td style="white-space:nowrap">
+          <button class="btn sm ghost" data-mv="${i}" data-d="-1" ${i === 0 ? "disabled" : ""}>↑</button>
+          <button class="btn sm ghost" data-mv="${i}" data-d="1" ${i === n - 1 ? "disabled" : ""}>↓</button>
+        </td>
+        <td><b>${esc(t.name)}</b></td>
+        <td class="code">${esc(t.code)}</td>
+        <td><span class="badge ${t.status}">${STATUS[t.status]}</span></td>
+        <td class="num">${t.team_count} / ${t.res_count}</td>
+        <td class="num" title="이 팀이 다른 팀에 투표한 수">${t.team_voted}/${n - 1}</td>
+        <td><div class="row-actions">
+          ${t.status === "open"
+            ? `<button class="btn sm" data-st="closed" data-id="${t.id}">마감</button>`
+            : `<button class="btn sm primary" data-st="open" data-id="${t.id}">${t.status === "closed" ? "다시 열기" : "시작"}</button>`}
+          <button class="btn sm ghost" data-rn="${t.id}">이름</button>
+          <button class="btn sm danger" data-del="${t.id}">삭제</button>
+        </div></td>
+      </tr>`).join("")}</tbody></table>`;
+
+    el.querySelectorAll("[data-st]").forEach((b) => b.onclick = async () => {
+      const t = teams.find((x) => x.id === b.dataset.id);
+      if (b.dataset.st === "open" && t.status === "closed" && !confirm(`${t.name} 투표를 다시 열까요? (이미 투표한 사람은 다시 못 해요)`)) return;
+      await adm("admin_set_status", { p_id: b.dataset.id, p_status: b.dataset.st }); refresh();
+    });
+    el.querySelectorAll("[data-del]").forEach((b) => b.onclick = async () => {
+      const t = teams.find((x) => x.id === b.dataset.del);
+      const cnt = t.team_count + t.res_count;
+      if (!confirm(`'${t.name}' 팀을 삭제할까요?${cnt ? `\n이 팀이 받은 표 ${cnt}개도 함께 삭제됩니다.` : ""}`)) return;
+      await adm("admin_delete_team", { p_id: t.id }); refresh();
+    });
+    el.querySelectorAll("[data-rn]").forEach((b) => b.onclick = async () => {
+      const t = teams.find((x) => x.id === b.dataset.rn);
+      const name = prompt("새 팀 이름", t.name);
+      if (!name || name.trim() === t.name) return;
+      await adm("admin_rename_team", { p_id: t.id, p_name: name }); refresh();
+    });
+    el.querySelectorAll("[data-mv]").forEach((b) => b.onclick = async () => {
+      const i = +b.dataset.mv, j = i + +b.dataset.d;
+      const ids = teams.map((t) => t.id);
+      [ids[i], ids[j]] = [ids[j], ids[i]];
+      await adm("admin_set_order", { p_ids: ids }); refresh();
+    });
+  }
+
+  function ranked() {
+    let rank = 0, prev = null;
+    return results.map((r, i) => {
+      if (prev === null || r.final !== prev) rank = i + 1;
+      const tie = (prev !== null && r.final === prev) || (results[i + 1] && results[i + 1].final === r.final);
+      prev = r.final;
+      return { ...r, rank, tie };
+    });
+  }
+
+  function renderResults() {
+    const el = document.getElementById("results");
+    if (!results.length) { el.innerHTML = `<p class="muted center">팀을 추가하면 여기에 집계돼요.</p>`; return; }
+    const rows = ranked();
+    el.innerHTML = `<table><thead><tr>
+      <th>순위</th><th>팀</th><th class="num">참가팀 평균<br>(표 수)</th><th class="num">관객 평균<br>(표 수)</th><th class="num">최종</th>
+      </tr></thead><tbody>${rows.map((r) => `
+      <tr>
+        <td><b>${r.rank}</b>${r.rank <= 3 ? ` <span class="award">${AWARDS[r.rank - 1]}</span>` : ""}${r.tie ? ` <span class="warn">동점</span>` : ""}</td>
+        <td>${esc(r.name)}</td>
+        <td class="num">${fmt(r.team_avg)} <span class="muted">(${r.team_count})</span></td>
+        <td class="num">${fmt(r.res_avg)} <span class="muted">(${r.res_count})</span></td>
+        <td class="num final">${fmt(r.final)}</td>
+      </tr>`).join("")}</tbody></table>
+      ${rows.some((r) => !r.team_count || !r.res_count) ? `<p class="warn">※ 표가 0개인 항목은 0점으로 계산됩니다.</p>` : ""}`;
+  }
+
+  function downloadCsv() {
+    const head = ["순위", "시상", "팀", "참가팀 평균(100)", "참가팀 창의성 평균(50)", "참가팀 표현력 평균(50)", "참가팀 표 수",
+                  "관객 평균(100)", "관객 창의성 평균(50)", "관객 표현력 평균(50)", "관객 표 수", "최종(참가팀×0.7+관객×0.3)"];
+    const lines = ranked().map((r) => [r.rank, r.rank <= 3 ? AWARDS[r.rank - 1] : "", r.name, r.team_avg ?? "", r.team_c ?? "", r.team_e ?? "",
+      r.team_count, r.res_avg ?? "", r.res_c ?? "", r.res_e ?? "", r.res_count, r.final]);
+    const csv = [head, ...lines].map((row) => row.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(",")).join("\r\n");
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8" }));
+    const d = new Date();
+    a.download = `금샘런웨이페스타_결과_${d.getMonth() + 1}${String(d.getDate()).padStart(2, "0")}_${String(d.getHours()).padStart(2, "0")}${String(d.getMinutes()).padStart(2, "0")}.csv`;
+    a.click();
+  }
+
+  if (pw) {
+    rpc("admin_login", { p_pw: pw }).then((ok) => ok ? mainView() : (sessionStorage.removeItem("gs_admin"), loginView())).catch(loginView);
+  } else loginView();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,11 @@
+/* Black Han Sans, Caveat Brush — SIL Open Font License (LICENSE 파일 참고) */
+@font-face {
+  font-family: 'Black Han Sans';
+  font-style: normal; font-weight: 400; font-display: swap;
+  src: url(./BlackHanSans.woff2) format('woff2');
+}
+@font-face {
+  font-family: 'Caveat Brush';
+  font-style: normal; font-weight: 400; font-display: swap;
+  src: url(./CaveatBrush.woff2) format('woff2');
+}

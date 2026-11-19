@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>금샘런웨이페스타 · 참가팀 투표</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main class="wrap">
+  <img class="banner" src="banner.jpg" alt="금정구청소년 어울림마당 금샘런웨이페스타 · 2026.11.21(토) 14:00 · 온천천 어울마당">
+  <header class="brand"><div class="sub"><span>참가팀 상호 투표</span></div></header>
+  <div id="app"><div class="card center muted">불러오는 중…</div></div>
+</main>
+<script src="config.js"></script>
+<script src="common.js"></script>
+<script>
+(async function () {
+  if (configMissing()) return showConfigError();
+  const app = document.getElementById("app");
+  let me = store("gs_team");        // {name, code, id}
+  let voted = new Set();
+  let currentTarget = null, lastView = "", refresher = null;
+
+  async function showLogin(msg) {
+    me = null; store("gs_team", null);
+    let teams = [];
+    try { teams = await rpc("get_state") || []; } catch {}
+    app.innerHTML = `
+      <div class="card">
+        <h2>팀 로그인</h2>
+        <p class="muted" style="margin-top:0">대표 1명만 로그인해 주세요. 우리 팀을 제외한 팀에 투표합니다.</p>
+        <label class="f">우리 팀</label>
+        <select id="tname" class="text">
+          <option value="">팀을 선택하세요</option>
+          ${teams.map((t) => `<option value="${esc(t.name)}">${esc(t.name)}</option>`).join("")}
+        </select>
+        <label class="f">팀 코드 (4자리)</label>
+        <input id="tcode" class="text" inputmode="numeric" maxlength="4" autocomplete="off" placeholder="운영진에게 받은 4자리 숫자">
+        <p id="err" class="warn" style="min-height:18px">${msg ? esc(msg) : ""}</p>
+        <button id="go" class="btn primary big">로그인</button>
+      </div>`;
+    document.getElementById("go").onclick = async () => {
+      const name = document.getElementById("tname").value;
+      const code = document.getElementById("tcode").value.trim();
+      const err = document.getElementById("err");
+      if (!name || !/^\d{4}$/.test(code)) { err.textContent = "팀과 4자리 코드를 확인해 주세요"; return; }
+      try {
+        const r = await rpc("team_login", { p_name: name, p_code: code });
+        if (!r || !r.ok) { err.textContent = "팀 이름 또는 코드가 맞지 않아요"; return; }
+        me = { name: r.name, code, id: r.id }; store("gs_team", me);
+        voted = new Set(r.voted || []);
+        startVoting();
+      } catch { err.textContent = "연결 오류. 다시 시도해 주세요"; }
+    };
+  }
+
+  function header() {
+    return `<div class="card" style="display:flex;justify-content:space-between;align-items:center;padding:12px 16px">
+      <div><span class="muted" style="font-size:13px">로그인</span> <b>${esc(me.name)}</b></div>
+      <button class="btn sm ghost" id="logout">로그아웃</button></div>`;
+  }
+  function bindLogout() {
+    const b = document.getElementById("logout");
+    if (b) b.onclick = () => { if (confirm("로그아웃할까요?")) { store("gs_team", null); location.reload(); } };
+  }
+
+  function render(teams) {
+    const others = teams.filter((t) => t.id !== me.id);
+    const progress = `${others.filter((t) => voted.has(t.id)).length} / ${others.length}팀 투표 완료`;
+    const open = teams.filter((t) => t.status === "open");
+    const target = open.find((t) => t.id !== me.id && !voted.has(t.id));
+    if (target) {
+      if (currentTarget === target.id) return;
+      currentTarget = target.id; lastView = "form";
+      app.innerHTML = header() + `
+        <div class="card now"><div class="label">지금 무대</div><div class="team">${esc(target.name)}</div>
+          <div class="muted" style="font-size:13px;margin-top:6px">${progress}</div></div>
+        <div class="card"><div id="form"></div></div>`;
+      bindLogout();
+      buildScoreForm(document.getElementById("form"), async (c, e) => {
+        let r;
+        try { r = await rpc("team_vote", { p_name: me.name, p_code: me.code, p_target: target.id, p_c: c, p_e: e }); }
+        catch { toast("전송 실패. 다시 눌러 주세요."); return; }
+        if (r === "ok" || r === "already") { voted.add(target.id); toast(r === "ok" ? "투표 완료!" : "이미 투표한 팀이에요"); }
+        else if (r === "auth") return showLogin("팀 정보가 바뀌었어요. 다시 로그인해 주세요");
+        else if (r === "closed") toast("이 팀 투표가 마감되었어요");
+        else toast("다시 시도해 주세요");
+        currentTarget = null; refresher && refresher.now();
+      });
+      return;
+    }
+    currentTarget = null;
+    const mine = open.some((t) => t.id === me.id);
+    const view = (mine ? "mine" : open.length ? "voted" : "wait") + progress;
+    if (view === lastView) return;
+    lastView = view;
+    const body = mine
+      ? `<div class="big-emoji">🌟</div><h2>지금은 우리 팀 무대!</h2><p class="muted">자기 팀에는 투표할 수 없어요.</p>`
+      : open.length
+      ? `<div class="big-emoji">✨</div><h2>투표 완료!</h2><p class="muted">다음 무대가 시작되면 자동으로 투표창이 열려요.</p>`
+      : `<div class="big-emoji">🎬</div><h2>다음 무대를 기다리는 중</h2><p class="muted">무대가 시작되면 자동으로 투표창이 열려요.</p>`;
+    app.innerHTML = header() + `<div class="card done">${body}<p style="margin-top:14px"><b>${progress}</b></p></div>`;
+    bindLogout();
+  }
+
+  async function startVoting() {
+    lastView = ""; currentTarget = null;
+    if (refresher) { refresher.now(); return; }
+    refresher = poll(async () => {
+      if (!me) return;
+      render(await rpc("get_state", {}, 1) || []);
+    }, 4000);
+  }
+
+  if (me && me.name && me.code) {
+    try {
+      const r = await rpc("team_login", { p_name: me.name, p_code: me.code });
+      if (r && r.ok) { me.id = r.id; voted = new Set(r.voted || []); return startVoting(); }
+    } catch {}
+  }
+  showLogin();
+})();
+</script>
+</body>
+</html>
