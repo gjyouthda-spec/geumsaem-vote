@@ -62,7 +62,9 @@
       <div class="card toolbar links" style="justify-content:space-between">
         <div class="toolbar">
           <a href="screen" target="_blank" class="btn sm gold">📺 QR 송출 화면 열기</a>
-          <span class="muted" style="font-size:13px">관객: <a href="vote" target="_blank">${base}/vote</a> · 참가팀: <a href="team" target="_blank">${base}/team</a></span>
+          <a href="vote" target="_blank" class="btn sm">관객 화면</a>
+          <a href="team" target="_blank" class="btn sm">참가팀 화면</a>
+          <button id="copyurl" class="btn sm ghost" title="${base}/team">참가팀 주소 복사</button>
         </div>
         <div class="toolbar">
           <button id="pwbtn" class="btn sm ghost">비밀번호 변경</button>
@@ -73,10 +75,10 @@
         <section class="card">
           <h2>참가팀 · 투표 진행</h2>
           <div class="toolbar" style="margin-bottom:10px">
-            <input id="newname" class="text" style="flex:1;min-width:160px" placeholder="새 팀 이름">
+            <input id="newname" class="text" style="flex:1;min-width:0" placeholder="새 팀 이름">
             <button id="add" class="btn primary">팀 추가</button>
           </div>
-          <div class="toolbar" style="margin-bottom:6px">
+          <div class="toolbar two" style="margin-bottom:6px">
             <button id="next" class="btn gold">▶ 다음 팀 투표 시작</button>
             <button id="closeall" class="btn">■ 진행 중 투표 마감</button>
           </div>
@@ -89,10 +91,10 @@
           <div id="results"></div>
           <details style="margin-top:14px">
             <summary style="cursor:pointer;font-weight:700">📝 종이 투표 입력 (관객 · 데이터 안 되는 분)</summary>
-            <div class="toolbar" style="margin-top:10px">
-              <select id="pteam" class="text" style="flex:1;min-width:120px"></select>
-              <input id="pc" class="text" style="width:110px" type="number" min="0" max="50" placeholder="창의성 0~50">
-              <input id="pe" class="text" style="width:110px" type="number" min="0" max="50" placeholder="표현력 0~50">
+            <div class="paper-row">
+              <select id="pteam" class="text"></select>
+              <input id="pc" class="text" type="number" inputmode="numeric" min="0" max="50" placeholder="창의성 /50">
+              <input id="pe" class="text" type="number" inputmode="numeric" min="0" max="50" placeholder="표현력 /50">
               <button id="padd" class="btn primary">입력</button>
             </div>
             <p class="muted" style="font-size:12px">한 장씩 입력하세요. 관객 표로 집계됩니다. (마감된 팀도 입력 가능)</p>
@@ -104,6 +106,10 @@
         </section>
       </div>`;
 
+    document.getElementById("copyurl").onclick = async () => {
+      try { await navigator.clipboard.writeText(base + "/team"); toast("복사됨: " + base + "/team"); }
+      catch { prompt("참가팀 주소", base + "/team"); }
+    };
     document.getElementById("logout").onclick = () => { sessionStorage.removeItem("gs_admin"); location.reload(); };
     document.getElementById("pwbtn").onclick = async () => {
       const n = prompt("새 관리자 비밀번호 (6자 이상)");
@@ -176,27 +182,39 @@
     if (document.activeElement && el.contains(document.activeElement) && document.activeElement.tagName === "INPUT") return;
     const n = teams.length;
     if (!n) { el.innerHTML = `<p class="muted center">아직 팀이 없어요. 위에서 추가하세요.</p>`; return; }
-    el.innerHTML = `<table><thead><tr>
-        <th>순서</th><th>팀</th><th>코드</th><th>상태</th><th class="num">받은 표<br>(팀/관객)</th><th class="num">투표함</th><th></th>
-      </tr></thead><tbody>${teams.map((t, i) => `
-      <tr class="${t.status === "open" ? "open-row" : ""}">
-        <td style="white-space:nowrap">
-          <button class="btn sm ghost" data-mv="${i}" data-d="-1" ${i === 0 ? "disabled" : ""}>↑</button>
-          <button class="btn sm ghost" data-mv="${i}" data-d="1" ${i === n - 1 ? "disabled" : ""}>↓</button>
-        </td>
-        <td><b>${esc(t.name)}</b></td>
-        <td class="code">${esc(t.code)}</td>
-        <td><span class="badge ${t.status}">${STATUS[t.status]}</span></td>
-        <td class="num">${t.team_count} / ${t.res_count}</td>
-        <td class="num" title="이 팀이 다른 팀에 투표한 수">${t.team_voted}/${n - 1}</td>
-        <td><div class="row-actions">
+    const missingFor = (t) => Array.isArray(t.voted_by) ? teams.filter((o) => o.id !== t.id && !t.voted_by.includes(o.id)) : null;
+    const chips = (list) => list.map((o) => `<span class="chip">${esc(o.name)}</span>`).join("");
+    const openTeam = teams.find((t) => t.status === "open");
+    let live = "";
+    if (openTeam) {
+      const miss = missingFor(openTeam);
+      live = `<div class="live">
+        <div class="live-head"><span class="badge open">투표 중</span> <b>${esc(openTeam.name)}</b>
+          <span class="live-count">참가팀 ${openTeam.team_count}/${n - 1} · 관객 ${openTeam.res_count}표</span></div>
+        ${miss === null ? `<div class="muted" style="font-size:12px">미투표 팀을 보려면 supabase.sql을 다시 실행하세요.</div>`
+          : miss.length ? `<div class="live-miss">아직 안 한 팀 <b>${miss.length}</b> ${chips(miss)}</div>`
+          : `<div class="live-ok">✅ 모든 참가팀이 투표했어요</div>`}
+      </div>`;
+    }
+    el.innerHTML = live + `<div class="tlist">${teams.map((t, i) => `
+      <div class="trow ${t.status === "open" ? "is-open" : ""}">
+        <div class="tmove">
+          <button class="btn sm ghost" data-mv="${i}" data-d="-1" ${i === 0 ? "disabled" : ""} aria-label="위로">↑</button>
+          <button class="btn sm ghost" data-mv="${i}" data-d="1" ${i === n - 1 ? "disabled" : ""} aria-label="아래로">↓</button>
+        </div>
+        <div class="tmain">
+          <div class="tname"><span class="tno">${i + 1}</span><b>${esc(t.name)}</b> <span class="badge ${t.status}">${STATUS[t.status]}</span></div>
+          <div class="tmeta"><span>코드 <span class="code">${esc(t.code)}</span></span><span>받은 표 팀 ${t.team_count} · 관객 ${t.res_count}</span><span>투표함 ${t.team_voted}/${n - 1}</span></div>
+          ${t.status === "closed" && missingFor(t) && missingFor(t).length ? `<div class="tmiss">미투표: ${missingFor(t).map((o) => esc(o.name)).join(", ")}</div>` : ""}
+        </div>
+        <div class="row-actions">
           ${t.status === "open"
             ? `<button class="btn sm" data-st="closed" data-id="${t.id}">마감</button>`
             : `<button class="btn sm primary" data-st="open" data-id="${t.id}">${t.status === "closed" ? "다시 열기" : "시작"}</button>`}
           <button class="btn sm ghost" data-rn="${t.id}">이름</button>
           <button class="btn sm danger" data-del="${t.id}">삭제</button>
-        </div></td>
-      </tr>`).join("")}</tbody></table>`;
+        </div>
+      </div>`).join("")}</div>`;
 
     el.querySelectorAll("[data-st]").forEach((b) => b.onclick = async () => {
       const t = teams.find((x) => x.id === b.dataset.id);
@@ -237,14 +255,13 @@
     const el = document.getElementById("results");
     if (!results.length) { el.innerHTML = `<p class="muted center">팀을 추가하면 여기에 집계돼요.</p>`; return; }
     const rows = ranked();
-    el.innerHTML = `<table><thead><tr>
-      <th>순위</th><th>팀</th><th class="num">참가팀 평균<br>(표 수)</th><th class="num">관객 평균<br>(표 수)</th><th class="num">최종</th>
+    el.innerHTML = `<table class="rtable"><thead><tr>
+      <th>순위</th><th>팀 / 세부 점수</th><th class="num">최종</th>
       </tr></thead><tbody>${rows.map((r) => `
-      <tr>
-        <td><b>${r.rank}</b>${r.rank <= 3 ? ` <span class="award">${AWARDS[r.rank - 1]}</span>` : ""}${r.tie ? ` <span class="warn">동점</span>` : ""}</td>
-        <td>${esc(r.name)}</td>
-        <td class="num">${fmt(r.team_avg)} <span class="muted">(${r.team_count})</span></td>
-        <td class="num">${fmt(r.res_avg)} <span class="muted">(${r.res_count})</span></td>
+      <tr class="${r.rank <= 3 ? "top" : ""}">
+        <td class="rk"><b>${r.rank}</b>${r.rank <= 3 ? `<div class="award">${AWARDS[r.rank - 1]}</div>` : ""}${r.tie ? `<div class="warn">동점</div>` : ""}</td>
+        <td><div class="rname">${esc(r.name)}</div>
+          <div class="rsub">참가팀 <b>${fmt(r.team_avg)}</b> (${r.team_count}표)<span class="sep">·</span>관객 <b>${fmt(r.res_avg)}</b> (${r.res_count}표)</div></td>
         <td class="num final">${fmt(r.final)}</td>
       </tr>`).join("")}</tbody></table>
       ${rows.some((r) => !r.team_count || !r.res_count) ? `<p class="warn">※ 표가 0개인 항목은 0점으로 계산됩니다.</p>` : ""}`;
