@@ -53,7 +53,7 @@
       } catch { document.getElementById("err").textContent = "연결 오류"; }
     };
     document.getElementById("go").onclick = go;
-    document.getElementById("pw").onkeydown = (e) => e.key === "Enter" && go();
+    document.getElementById("pw").addEventListener("keydown", (e) => { if (e.key === "Enter") go(); });
   }
 
   function mainView() {
@@ -120,7 +120,7 @@
       inp.value = ""; toast(`${r.name} 추가 · 코드 ${r.code}`, 3500); refresh();
     };
     document.getElementById("add").onclick = addTeam;
-    document.getElementById("newname").onkeydown = (e) => e.key === "Enter" && addTeam();
+    document.getElementById("newname").addEventListener("keydown", (e) => { if (e.key === "Enter") addTeam(); });
     document.getElementById("next").onclick = async () => {
       const open = teams.find((t) => t.status === "open");
       const startIdx = open ? teams.indexOf(open) + 1 : 0;
