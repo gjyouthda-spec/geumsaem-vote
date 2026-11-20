@@ -151,8 +151,9 @@ function showConfigError() {
 // 상태 조회: { teams: [...], survey: true/false }  (예전 형식도 처리)
 async function getState() {
   const st = await rpc("get_state", {}, 1);
-  if (Array.isArray(st)) return { teams: st, survey: false };
-  return { teams: (st && st.teams) || [], survey: !!(st && st.survey) };
+  if (Array.isArray(st)) return { teams: st, survey: false, rsurvey: false };
+  const survey = !!(st && st.survey);
+  return { teams: (st && st.teams) || [], survey, rsurvey: st && st.rsurvey !== undefined ? !!st.rsurvey : survey };
 }
 
 // ---------- 사후 만족도 설문 ----------
@@ -186,7 +187,8 @@ const SCALE = [
   { v: 1, face: "😞", label: "전혀 그렇지 않다" },
 ];
 
-function buildSurveyForm(el, kind, onSubmit) {
+// draft: { ans: [..4], comment } — 화면이 다시 그려져도 작성 중인 응답 유지
+function buildSurveyForm(el, kind, onSubmit, draft) {
   const S = SURVEY[kind];
   el.innerHTML = S.qs.map((q, i) => `
     <div class="sq" data-i="${i}">
@@ -202,7 +204,9 @@ function buildSurveyForm(el, kind, onSubmit) {
     </div>
     <button type="button" class="btn primary big submit" disabled>설문 제출하기</button>
     <p class="hint">1~4번 문항에 모두 답해 주세요 (<b class="cnt">0</b>/4)</p>`;
-  const ans = [null, null, null, null];
+  const ans = draft && draft.ans ? draft.ans : [null, null, null, null];
+  const cm = el.querySelector(".sc-comment");
+  if (draft) { cm.value = draft.comment || ""; cm.addEventListener("input", () => { draft.comment = cm.value; }); }
   const submit = el.querySelector(".submit"), hint = el.querySelector(".hint"), cnt = el.querySelector(".cnt");
   const refresh = () => {
     const done = ans.filter((a) => a !== null).length;
@@ -216,7 +220,9 @@ function buildSurveyForm(el, kind, onSubmit) {
       box.querySelectorAll(".sc").forEach((x) => { x.classList.toggle("on", x === b); x.setAttribute("aria-checked", x === b); });
       box.classList.add("answered"); refresh();
     }));
+    if (ans[i] !== null) box.querySelector(`.sc[data-v="${ans[i]}"]`)?.click();
   });
+  refresh();
   submit.addEventListener("click", async () => {
     submit.disabled = true; submit.textContent = "보내는 중…";
     try { await onSubmit(ans, el.querySelector(".sc-comment").value); }

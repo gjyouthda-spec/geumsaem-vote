@@ -89,7 +89,7 @@
     const open = st.teams.filter((t) => t.status === "open");
     const survey = st.survey && !open.length;
     document.body.classList.toggle("two", survey); q2.hidden = !survey;
-    qrcap.innerHTML = survey ? "📱 <b>관객</b> 설문" : "📱 <b>관객</b> 투표하기";
+    qrcap.innerHTML = survey ? "📱 <b>관객</b> 설문" : st.rsurvey ? "📱 <b>관객</b> 투표·설문" : "📱 <b>관객</b> 투표하기";
     guide.innerHTML = survey ? "오늘 행사 어떠셨나요?<br><em>사후 만족도 조사</em>에 참여해 주세요!" : guideVote;
     if (survey) {
       label.textContent = "사후 만족도 조사"; label.classList.remove("wait");

@@ -9,7 +9,11 @@
 <body>
 <main class="wrap">
   <img class="banner" src="banner.jpg" alt="금정구청소년 어울림마당 금샘런웨이페스타 · 2026.11.21(토) 14:00 · 온천천 어울마당">
-  <header class="brand"><div class="sub"><span id="sub">관객 투표</span></div></header>
+  <nav class="tabs" id="tabs" hidden>
+    <button type="button" class="tab on" data-tab="vote">🗳 무대 투표<i class="dot" id="dot-vote" hidden></i></button>
+    <button type="button" class="tab" data-tab="survey">📝 만족도 조사<i class="ck" id="ck-survey" hidden>✓</i></button>
+  </nav>
+  <div id="notice"></div>
   <div id="app"><div class="card center muted">불러오는 중…</div></div>
 </main>
 <script src="config.js"></script>
@@ -18,29 +22,57 @@
 (async function () {
   if (configMissing()) return showConfigError();
   const app = document.getElementById("app");
-  const sub = document.getElementById("sub");
+  const notice = document.getElementById("notice");
+  const tabsEl = document.getElementById("tabs");
   const dev = deviceId();
   let voted = new Set(store("gs_voted") || []);
   let surveyDone = !!store("gs_survey_resident");
-  let view = "";   // 지금 띄운 화면 (같은 화면이면 다시 그리지 않음 → 입력 중인 값 유지)
+  let tab = "vote";       // 관객이 고른 탭 (앱이 마음대로 바꾸지 않음)
+  let view = "";          // 지금 그려진 화면 (같으면 다시 그리지 않음 → 입력 중인 값 유지)
+  let last = null;        // 마지막 상태
+  const draft = { ans: [null, null, null, null], comment: "" };   // 작성 중인 설문 보존
 
   try { (await rpc("resident_my_votes", { p_device: dev }) || []).forEach((id) => voted.add(id)); } catch {}
   try { const m = await rpc("survey_my", { p_device: dev }); if (m && m.resident) surveyDone = true; } catch {}
   const saveVoted = () => store("gs_voted", [...voted]);
 
+  function setTab(t) {
+    tab = t; view = "";
+    tabsEl.querySelectorAll(".tab").forEach((b) => b.classList.toggle("on", b.dataset.tab === t));
+    if (last) render(last);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+  tabsEl.querySelectorAll(".tab").forEach((b) => b.addEventListener("click", () => setTab(b.dataset.tab)));
+
   function show(key, html, after) {
-    if (view === key) return false;
+    if (view === key) return;
     view = key; app.innerHTML = html; if (after) after();
-    return true;
   }
 
   function render(st) {
+    last = st;
     const open = st.teams.filter((t) => t.status === "open");
     const target = open.find((t) => !voted.has(t.id));
 
-    // 1) 진행 중인 무대 투표가 먼저
+    // 탭 표시: 관객 설문이 열려 있을 때만 탭이 보임
+    tabsEl.hidden = !st.rsurvey;
+    if (!st.rsurvey && tab === "survey") { tab = "vote"; view = ""; tabsEl.querySelectorAll(".tab").forEach((b) => b.classList.toggle("on", b.dataset.tab === "vote")); }
+    document.getElementById("dot-vote").hidden = !target;
+    document.getElementById("ck-survey").hidden = !surveyDone;
+
+    // 설문 탭에 있는데 새 무대 투표가 열리면: 화면은 그대로, 알림만
+    const nkey = tab === "survey" && target ? target.id : "";
+    if (notice.dataset.k !== nkey) {
+      notice.dataset.k = nkey;
+      notice.innerHTML = nkey ? `<div class="notice"><span><span class="badge open">투표 중</span> <b>${esc(target.name)}</b> 투표 시작!</span>
+        <button type="button" class="btn primary sm" id="go-vote">투표하러 가기</button></div>` : "";
+      const g = document.getElementById("go-vote"); if (g) g.onclick = () => setTab("vote");
+    }
+
+    if (tab === "survey") return renderSurvey(st);
+
+    // ---- 무대 투표 탭 ----
     if (target) {
-      sub.textContent = "관객 투표";
       return show("vote:" + target.id, `
         <div class="card now"><div class="label">지금 무대</div><div class="team">${esc(target.name)}</div></div>
         <div class="card"><div id="form"></div></div>`, () =>
@@ -57,33 +89,33 @@
           view = ""; refresher.now();
         }));
     }
+    const surveyHint = st.rsurvey && !surveyDone
+      ? `<button type="button" class="btn big" id="to-survey" style="margin-top:4px">📝 기다리는 동안 만족도 조사 참여하기</button>` : "";
+    const msg = open.length
+      ? `<div class="big-emoji">✨</div><h2>투표 완료!</h2><p class="muted">다음 무대가 시작되면 이 화면에 투표창이 자동으로 열려요.<br>화면을 켜 두세요.</p>`
+      : `<div class="big-emoji">🎬</div><h2>다음 무대를 기다리는 중</h2><p class="muted">무대가 시작되면 투표창이 자동으로 열려요.<br>화면을 켜 두세요.</p>`;
+    show((open.length ? "voted" : "wait") + (surveyHint ? "+h" : ""), `<div class="card done">${msg}</div>${surveyHint}`, () => {
+      const b = document.getElementById("to-survey"); if (b) b.onclick = () => setTab("survey");
+    });
+  }
 
-    // 2) 사후 만족도 설문
-    if (st.survey) {
-      sub.textContent = "사후 만족도 조사";
-      if (surveyDone) return show("survey-done", `<div class="card done"><div class="big-emoji">💖</div><h2>설문 참여 감사합니다!</h2>
-        <p class="muted">오늘 금샘런웨이페스타를 함께해 주셔서 고마워요.</p></div>`);
-      return show("survey", `
-        <div class="card survey-head"><div class="label">SURVEY</div><h2>${SURVEY.resident.title}</h2>
-          <p class="muted" style="margin:0;font-size:14px">1분이면 끝나요! 더 좋은 행사를 만드는 데 쓰입니다.</p></div>
-        <div class="card"><div id="sform"></div></div>`, () =>
-        buildSurveyForm(document.getElementById("sform"), "resident", async (a, comment) => {
-          let r;
-          try { r = await rpc("survey_submit", { p_kind: "resident", p_team: null, p_device: dev,
-                  p_q1: a[0], p_q2: a[1], p_q3: a[2], p_q4: a[3], p_comment: comment }); }
-          catch { toast("전송 실패. 신호를 확인하고 다시 눌러 주세요."); return; }
-          toast(surveyResultMsg(r));
-          if (r === "ok" || r === "already") { surveyDone = true; store("gs_survey_resident", true); }
-          if (r !== "invalid") { view = ""; refresher.now(); }
-        }));
-    }
-
-    // 3) 대기 화면
-    sub.textContent = "관객 투표";
-    if (open.length) return show("voted", `<div class="card done"><div class="big-emoji">✨</div><h2>투표 완료!</h2>
-      <p class="muted">다음 팀 무대가 시작되면<br>이 화면에 자동으로 투표창이 열려요.<br>화면을 켜 두세요.</p></div>`);
-    return show("wait", `<div class="card done"><div class="big-emoji">🎬</div><h2>다음 무대를 기다리는 중</h2>
-      <p class="muted">무대가 시작되면 투표창이 자동으로 열려요.<br>이 화면을 켜 두세요.</p></div>`);
+  // ---- 만족도 조사 탭 ----
+  function renderSurvey(st) {
+    if (surveyDone) return show("sdone", `<div class="card done"><div class="big-emoji">💖</div><h2>설문 참여 감사합니다!</h2>
+      <p class="muted">오늘 금샘런웨이페스타를 함께해 주셔서 고마워요.</p></div>`);
+    show("survey", `
+      <div class="card survey-head"><div class="label">SURVEY</div><h2>${SURVEY.resident.title}</h2>
+        <p class="muted" style="margin:0;font-size:14px">1분이면 끝나요! 언제든 참여할 수 있어요.</p></div>
+      <div class="card"><div id="sform"></div></div>`, () =>
+      buildSurveyForm(document.getElementById("sform"), "resident", async (a, comment) => {
+        let r;
+        try { r = await rpc("survey_submit", { p_kind: "resident", p_team: null, p_device: dev,
+                p_q1: a[0], p_q2: a[1], p_q3: a[2], p_q4: a[3], p_comment: comment }); }
+        catch { toast("전송 실패. 신호를 확인하고 다시 눌러 주세요."); return; }
+        toast(surveyResultMsg(r));
+        if (r === "ok" || r === "already") { surveyDone = true; store("gs_survey_resident", true); }
+        if (r !== "invalid") { view = ""; refresher.now(); }
+      }, draft));
   }
 
   const refresher = poll(async () => render(await getState()), 5000);

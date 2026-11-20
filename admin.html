@@ -109,13 +109,20 @@
       <section class="card" id="survey-card">
         <div class="sv-top">
           <h2 style="margin:0">📝 사후 만족도 조사</h2>
-          <span id="sv-status" class="badge waiting">대기</span>
-          <div class="toolbar" style="margin-left:auto">
-            <button id="sv-toggle" class="btn primary">▶ 사후설문 시작</button>
-            <button id="sv-csv" class="btn sm">⬇ 설문 CSV(엑셀) 저장</button>
+          <button id="sv-csv" class="btn sm" style="margin-left:auto">⬇ 설문 CSV(엑셀) 저장</button>
+        </div>
+        <div class="sv-ctrl">
+          <div class="sv-row">
+            <div><b>관객 설문</b> <span id="rsv-status" class="badge waiting">-</span>
+              <div class="muted">기본으로 열려 있어요. 관객 QR 화면에서 투표할 무대가 없을 때 아래에 설문이 보입니다.</div></div>
+            <button id="rsv-toggle" class="btn">닫기</button>
+          </div>
+          <div class="sv-row">
+            <div><b>참가자 설문</b> <span id="sv-status" class="badge waiting">대기</span>
+              <div class="muted">행사 끝에 시작하세요. 참가자 설문 주소(<a href="survey" target="_blank">${base}/survey</a>)·팀 대표 화면에 뜨고, 송출 화면에 참가자 설문 QR이 나옵니다.</div></div>
+            <button id="sv-toggle" class="btn primary">▶ 참가자 설문 시작</button>
           </div>
         </div>
-        <p class="muted" style="font-size:12px;margin:6px 0 0">시작하면 관객 화면(QR)에는 관객 설문이, 참가자 설문 주소(<a href="survey" target="_blank">${base}/survey</a>)와 팀 대표 화면에는 참가팀 설문이 자동으로 뜹니다. 무대 투표가 진행 중이면 관객에게는 투표가 먼저 보여요. 송출 화면에는 참가자 설문 QR이 함께 나옵니다.</p>
         <div id="survey"></div>
       </section>`;
 
@@ -159,10 +166,15 @@
     document.getElementById("csv").onclick = downloadCsv;
     document.getElementById("sv-toggle").onclick = async () => {
       const open = !!(survey && survey.open);
-      if (!open && teams.some((t) => t.status === "open") && !confirm("아직 무대 투표가 진행 중이에요. 관객에게는 투표가 끝난 뒤 설문이 보입니다. 설문을 시작할까요?")) return;
-      if (open && !confirm("설문을 종료할까요? 종료 후에는 응답을 받지 않습니다. (다시 시작 가능)")) return;
+      if (open && !confirm("참가자 설문을 종료할까요? 종료 후에는 응답을 받지 않습니다. (다시 시작 가능)")) return;
       await adm("admin_set_survey", { p_open: !open });
-      toast(open ? "설문 종료" : "사후설문 시작!"); refresh();
+      toast(open ? "참가자 설문 종료" : "참가자 설문 시작!"); refresh();
+    };
+    document.getElementById("rsv-toggle").onclick = async () => {
+      const open = !(survey && survey.ropen === false);
+      if (open && !confirm("관객 설문을 닫을까요? 닫으면 관객 화면에서 설문이 사라집니다. (다시 열 수 있어요)")) return;
+      await adm("admin_set_rsurvey", { p_open: !open });
+      toast(open ? "관객 설문 닫음" : "관객 설문 다시 열림"); refresh();
     };
     document.getElementById("sv-csv").onclick = downloadSurveyCsv;
     document.getElementById("padd").onclick = async () => {
@@ -308,13 +320,17 @@
     const st = document.getElementById("sv-status"), tg = document.getElementById("sv-toggle");
     if (!survey) {
       el.innerHTML = `<p class="warn">설문 기능을 쓰려면 Supabase에서 새 supabase.sql을 한 번 더 실행해 주세요.</p>`;
-      tg.disabled = true; return;
+      tg.disabled = true; document.getElementById("rsv-toggle").disabled = true; return;
     }
-    tg.disabled = false;
+    tg.disabled = false; document.getElementById("rsv-toggle").disabled = false;
     st.className = "badge " + (survey.open ? "open" : "waiting");
     st.textContent = survey.open ? "진행 중" : "대기";
     tg.className = survey.open ? "btn" : "btn primary";
-    tg.textContent = survey.open ? "■ 설문 종료" : "▶ 사후설문 시작";
+    tg.textContent = survey.open ? "■ 참가자 설문 종료" : "▶ 참가자 설문 시작";
+    const ropen = survey.ropen !== false;
+    const rst = document.getElementById("rsv-status"), rtg = document.getElementById("rsv-toggle");
+    rst.className = "badge " + (ropen ? "open" : "closed"); rst.textContent = ropen ? "열림" : "닫힘";
+    rtg.className = ropen ? "btn" : "btn primary"; rtg.textContent = ropen ? "■ 닫기" : "▶ 다시 열기";
     if (el.contains(document.activeElement)) return;
     const K = survey.kinds || {};
     const totalMem = survey.by_team.reduce((a, t) => a + (t.members || 0), 0);

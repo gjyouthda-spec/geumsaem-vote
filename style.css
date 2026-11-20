@@ -244,3 +244,26 @@ textarea.text:focus { outline: none; border-color: var(--purple); }
 .sv-cm summary { cursor: pointer; font-weight: 700; font-size: 13px; }
 .sv-cm ul { margin: 8px 0 0; padding-left: 18px; font-size: 13px; max-height: 260px; overflow: auto; }
 .sv-cm li { margin-bottom: 4px; }
+.card.done.slim { padding: 16px; }
+.card.done.slim .big-emoji { font-size: 30px; }
+.card.done.slim h2 { font-size: 22px; margin: 2px 0; }
+.card.done.slim p { margin: 4px 0 0; font-size: 14px; }
+.sv-ctrl { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
+@media (max-width: 860px) { .sv-ctrl { grid-template-columns: 1fr; } }
+.sv-row { display: flex; gap: 10px; align-items: center; justify-content: space-between; background: #fff; border: 1px solid var(--line); border-radius: 14px; padding: 10px 14px; }
+.sv-row .muted { font-size: 12px; margin-top: 2px; }
+.sv-row .btn { flex: none; }
+
+/* 관객 화면 탭 */
+.tabs { position: sticky; top: 0; z-index: 20; display: grid; grid-template-columns: 1fr 1fr; gap: 6px; padding: 6px; margin: 4px 0 14px;
+  background: rgba(255,255,255,.9); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
+.tabs[hidden] { display: none; }
+.tab { position: relative; border: 0; background: transparent; color: var(--muted); font-family: inherit; font-size: 16px; font-weight: 800; padding: 12px 6px; border-radius: 12px; cursor: pointer; }
+.tab.on { background: var(--text); color: #fff; box-shadow: 3px 3px 0 var(--pink); }
+.tab .dot { position: absolute; top: 8px; right: 10px; width: 10px; height: 10px; border-radius: 50%; background: var(--pink); box-shadow: 0 0 0 3px #fff; animation: pulse 1.2s infinite; }
+.tab .ck { font-style: normal; margin-left: 4px; color: var(--green); }
+.tab.on .ck { color: #8fe0b0; }
+.notice { display: flex; align-items: center; justify-content: space-between; gap: 10px; background: #fff0f7; border: 2px solid var(--pink); border-radius: 14px; padding: 10px 12px; margin-bottom: 12px; font-size: 14px; }
+.notice .btn { flex: none; }
+#notice { position: sticky; top: 72px; z-index: 19; }
+#notice .notice { box-shadow: 0 8px 20px rgba(240, 21, 127, .25); }
