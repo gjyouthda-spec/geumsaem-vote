@@ -28,6 +28,7 @@
   .qrbox .cap b { color: var(--pink); font-weight: 400; }
   .qrs { display: flex; gap: 3vw; align-items: center; }
   .qritem { display: flex; flex-direction: column; align-items: center; }
+  .qritem[hidden] { display: none; }
   .qrbox.alt { background-image: linear-gradient(#fff, #fff), linear-gradient(135deg, var(--gold), var(--purple)); }
   body.two .qrbox svg { height: min(36vh, 24vw); }
   body.two .info { max-width: 34vw; }
@@ -88,7 +89,7 @@
     const st = await getState();
     const open = st.teams.filter((t) => t.status === "open");
     const survey = st.survey && !open.length;
-    document.body.classList.toggle("two", survey); q2.hidden = !survey;
+    // 참가자 설문 QR은 공개 화면에 띄우지 않음 (관리자 화면에서 참가자에게만 보여주기)
     qrcap.innerHTML = survey ? "📱 <b>관객</b> 설문" : st.rsurvey ? "📱 <b>관객</b> 투표·설문" : "📱 <b>관객</b> 투표하기";
     guide.innerHTML = survey ? "오늘 행사 어떠셨나요?<br><em>사후 만족도 조사</em>에 참여해 주세요!" : guideVote;
     if (survey) {

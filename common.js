@@ -232,5 +232,5 @@ function buildSurveyForm(el, kind, onSubmit, draft) {
 
 function surveyResultMsg(r) {
   return { ok: "설문 제출 완료! 감사합니다 💖", already: "이미 설문에 참여했어요", closed: "설문이 종료되었어요",
-           no_team: "팀을 다시 선택해 주세요" }[r] || "다시 시도해 주세요";
+           no_team: "팀을 다시 선택해 주세요", code: "참가자 코드가 맞지 않아요" }[r] || "다시 시도해 주세요";
 }

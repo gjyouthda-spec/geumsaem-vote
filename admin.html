@@ -15,6 +15,7 @@
 </main>
 <script src="config.js"></script>
 <script src="common.js"></script>
+<script src="qrcode.js"></script>
 <script>
 (function () {
   if (configMissing()) return showConfigError();
@@ -119,7 +120,10 @@
           </div>
           <div class="sv-row">
             <div><b>참가자 설문</b> <span id="sv-status" class="badge waiting">대기</span>
-              <div class="muted">행사 끝에 시작하세요. 참가자 설문 주소(<a href="survey" target="_blank">${base}/survey</a>)·팀 대표 화면에 뜨고, 송출 화면에 참가자 설문 QR이 나옵니다.</div></div>
+              <div class="muted">행사 끝에 시작하세요. 참가자 설문은 <b>참가자 코드</b>가 있어야 응답돼요. 공개 스크린에는 띄우지 않으니, 대기 공간에서 [참가자 QR·코드]를 보여주거나 팀 단톡방에 공유하세요. 팀 대표 화면 버튼에는 코드가 자동으로 들어가요.</div>
+              <div class="toolbar" style="margin-top:6px">참가자 코드 <b class="code" id="sv-code">-</b>
+                <button id="sv-qr" class="btn sm gold">참가자 QR·코드 보기</button>
+                <button id="sv-newcode" class="btn sm ghost">새 코드</button></div></div>
             <button id="sv-toggle" class="btn primary">▶ 참가자 설문 시작</button>
           </div>
         </div>
@@ -177,6 +181,35 @@
       toast(open ? "관객 설문 닫음" : "관객 설문 다시 열림"); refresh();
     };
     document.getElementById("sv-csv").onclick = downloadSurveyCsv;
+    document.getElementById("sv-newcode").onclick = async () => {
+      if (!confirm("참가자 코드를 새로 만들까요? 이전 코드는 더 이상 쓸 수 없어요. (이미 받은 응답은 유지)")) return;
+      const c = await adm("admin_new_survey_code"); toast("새 참가자 코드: " + c, 3500); refresh();
+    };
+    document.getElementById("sv-qr").onclick = () => {
+      const code = survey && survey.code;
+      if (!code) return toast("supabase.sql을 다시 실행해 주세요");
+      const url = base + "/survey?code=" + encodeURIComponent(code);
+      const qr = qrcode(0, "M"); qr.addData(url); qr.make();
+      const m = document.createElement("div");
+      m.className = "modal";
+      m.innerHTML = `<div class="modal-box">
+        <div class="eyebrow-s">참가팀 전용 · 공개 스크린에 띄우지 마세요</div>
+        <h2>참가자 만족도 조사</h2>
+        <div class="mqr">${qr.createSvgTag({ cellSize: 10, margin: 30, scalable: true })}</div>
+        <div class="mcode">참가자 코드 <b>${esc(code)}</b></div>
+        <div class="muted" style="font-size:13px;word-break:break-all">${esc(base)}/survey</div>
+        <div class="toolbar" style="justify-content:center;margin-top:12px">
+          <button class="btn sm" id="m-copy">링크 복사 (단톡방 공유용)</button>
+          <button class="btn sm primary" id="m-close">닫기</button></div></div>`;
+      document.body.appendChild(m);
+      const close = () => m.remove();
+      m.addEventListener("click", (e) => { if (e.target === m) close(); });
+      m.querySelector("#m-close").onclick = close;
+      m.querySelector("#m-copy").onclick = async () => {
+        const text = `[금샘런웨이페스타 참가자 만족도 조사]\n${url}\n참가자 코드: ${code}`;
+        try { await navigator.clipboard.writeText(text); toast("복사됨! 단톡방에 붙여넣으세요"); } catch { prompt("복사해서 공유하세요", text); }
+      };
+    };
     document.getElementById("padd").onclick = async () => {
       const team = document.getElementById("pteam").value;
       const pc = document.getElementById("pc"), pe = document.getElementById("pe");
@@ -331,6 +364,7 @@
     const rst = document.getElementById("rsv-status"), rtg = document.getElementById("rsv-toggle");
     rst.className = "badge " + (ropen ? "open" : "closed"); rst.textContent = ropen ? "열림" : "닫힘";
     rtg.className = ropen ? "btn" : "btn primary"; rtg.textContent = ropen ? "■ 닫기" : "▶ 다시 열기";
+    document.getElementById("sv-code").textContent = survey.code || "-";
     if (el.contains(document.activeElement)) return;
     const K = survey.kinds || {};
     const totalMem = survey.by_team.reduce((a, t) => a + (t.members || 0), 0);

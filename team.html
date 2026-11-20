@@ -48,7 +48,7 @@
       try {
         const r = await rpc("team_login", { p_name: name, p_code: code });
         if (!r || !r.ok) { err.textContent = "팀 이름 또는 코드가 맞지 않아요"; return; }
-        me = { name: r.name, code, id: r.id }; store("gs_team", me);
+        me = { name: r.name, code, id: r.id, scode: r.survey_code || "" }; store("gs_team", me);
         voted = new Set(r.voted || []);
         startVoting();
       } catch { err.textContent = "연결 오류. 다시 시도해 주세요"; }
@@ -104,7 +104,8 @@
     const surveyCard = st.survey ? `<div class="card center" style="border:2px solid var(--purple)">
         <div style="font-size:34px">📝</div><h2 style="margin:4px 0">참가자 만족도 조사</h2>
         <p class="muted" style="margin:0 0 12px">대표님도 팀원과 함께 참여해 주세요!</p>
-        <a class="btn primary big" href="survey?team=${encodeURIComponent(me.id)}">설문하러 가기</a></div>` : "";
+        <a class="btn primary big" href="survey?team=${encodeURIComponent(me.id)}&code=${encodeURIComponent(me.scode || "")}">설문하러 가기</a>
+        ${me.scode ? `<p class="muted" style="margin:10px 0 0;font-size:13px">팀원에게 알려줄 참가자 코드: <b class="code">${esc(me.scode)}</b></p>` : ""}</div>` : "";
     app.innerHTML = header() + surveyCard + `<div class="card done">${body}<p style="margin-top:14px"><b>${progress}</b></p></div>`;
     bindLogout();
   }
@@ -121,7 +122,7 @@
   if (me && me.name && me.code) {
     try {
       const r = await rpc("team_login", { p_name: me.name, p_code: me.code });
-      if (r && r.ok) { me.id = r.id; voted = new Set(r.voted || []); return startVoting(); }
+      if (r && r.ok) { me.id = r.id; me.scode = r.survey_code || ""; voted = new Set(r.voted || []); return startVoting(); }
     } catch {}
   }
   showLogin();

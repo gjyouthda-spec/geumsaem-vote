@@ -19,8 +19,9 @@
   if (configMissing()) return showConfigError();
   const app = document.getElementById("app");
   const dev = deviceId();
-  const qTeam = new URLSearchParams(location.search).get("team");
-  if (qTeam) store("gs_myteam", qTeam);
+  const qs = new URLSearchParams(location.search);
+  if (qs.get("team")) store("gs_myteam", qs.get("team"));
+  if (qs.get("code")) store("gs_scode", qs.get("code"));
   let done = !!store("gs_survey_team");
   let view = "", teamsKey = "";
   try { const m = await rpc("survey_my", { p_device: dev }); if (m && m.team) done = true; } catch {}
@@ -43,6 +44,7 @@
     const key = st.teams.map((t) => t.id + t.name).join("|");
     if (view === "form" && key === teamsKey) return;   // 입력 중이면 그대로
     const keepTeam = document.getElementById("myteam")?.value || store("gs_myteam") || "";
+    const keepCode = document.getElementById("scode")?.value || store("gs_scode") || "";
     view = "form"; teamsKey = key;
     app.innerHTML = `
       <div class="card survey-head"><div class="label">SURVEY</div><h2>${SURVEY.team.title}</h2>
@@ -53,18 +55,38 @@
           <option value="">팀을 선택하세요</option>
           ${st.teams.map((t) => `<option value="${t.id}">${esc(t.name)}</option>`).join("")}
         </select>
+        <label class="f">참가자 코드 (4자리)</label>
+        <div class="code-row">
+          <input id="scode" class="text" inputmode="numeric" maxlength="4" autocomplete="off" placeholder="운영진이 알려준 4자리 숫자">
+          <span id="scode-ok" class="code-ok"></span>
+        </div>
+        <p class="muted" style="font-size:12px;margin:6px 0 0">참가팀 전용 설문이에요. 관객은 관객 화면(QR)의 만족도 조사를 이용해 주세요.</p>
         <div id="sform" style="margin-top:14px"></div>
       </div>`;
     const sel = document.getElementById("myteam");
     if (st.teams.some((t) => t.id === keepTeam)) sel.value = keepTeam;
     sel.addEventListener("change", () => store("gs_myteam", sel.value));
+    const codeEl = document.getElementById("scode"), okEl = document.getElementById("scode-ok");
+    codeEl.value = keepCode;
+    const checkCode = async () => {
+      const v = codeEl.value.trim();
+      if (!/^\d{4}$/.test(v)) { okEl.textContent = ""; okEl.className = "code-ok"; return; }
+      try {
+        const ok = await rpc("survey_check_code", { p_code: v });
+        okEl.textContent = ok ? "✓ 확인" : "✗ 코드 확인"; okEl.className = "code-ok " + (ok ? "good" : "bad");
+        if (ok) store("gs_scode", v);
+      } catch {}
+    };
+    codeEl.addEventListener("input", checkCode); checkCode();
     buildSurveyForm(document.getElementById("sform"), "team", async (a, comment) => {
       if (!sel.value) { toast("우리 팀을 먼저 선택해 주세요"); sel.focus(); return; }
+      if (!/^\d{4}$/.test(codeEl.value.trim())) { toast("참가자 코드 4자리를 넣어 주세요"); codeEl.focus(); return; }
       let r;
       try { r = await rpc("survey_submit", { p_kind: "team", p_team: sel.value, p_device: dev,
-              p_q1: a[0], p_q2: a[1], p_q3: a[2], p_q4: a[3], p_comment: comment }); }
+              p_q1: a[0], p_q2: a[1], p_q3: a[2], p_q4: a[3], p_comment: comment, p_code: codeEl.value.trim() }); }
       catch { toast("전송 실패. 신호를 확인하고 다시 눌러 주세요."); return; }
       toast(surveyResultMsg(r));
+      if (r === "code") { codeEl.focus(); checkCode(); return; }
       if (r === "ok" || r === "already") { done = true; store("gs_survey_team", true); }
       if (r === "ok" || r === "already" || r === "closed") { view = ""; refresher.now(); }
     });
