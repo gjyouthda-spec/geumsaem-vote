@@ -26,6 +26,11 @@
   .qrbox svg { height: min(44vh, 40vw); width: auto; display: block; }
   .qrbox .cap { font-family: "Black Han Sans", sans-serif; color: var(--text); font-size: 3.4vh; margin-top: .4vh; }
   .qrbox .cap b { color: var(--pink); font-weight: 400; }
+  .qrs { display: flex; gap: 3vw; align-items: center; }
+  .qritem { display: flex; flex-direction: column; align-items: center; }
+  .qrbox.alt { background-image: linear-gradient(#fff, #fff), linear-gradient(135deg, var(--gold), var(--purple)); }
+  body.two .qrbox svg { height: min(36vh, 24vw); }
+  body.two .info { max-width: 34vw; }
   .url { color: var(--muted); font-size: 2vh; margin-top: 1vh; font-weight: 600; }
   .fs { position: fixed; right: 12px; bottom: 12px; opacity: .25; }
   .fs:hover { opacity: 1; }
@@ -52,8 +57,12 @@
       <div class="guide">휴대폰 카메라로 QR을 찍고<br><em>마음에 드는 무대</em>에 점수를 주세요!</div>
     </div>
     <div class="qrwrap">
-      <div class="qrbox"><div id="qr"></div><div class="cap">📱 <b>관객</b> 투표하기</div></div>
-      <div class="url" id="url"></div>
+      <div class="qrs">
+        <div class="qritem"><div class="qrbox"><div id="qr"></div><div class="cap" id="qrcap">📱 <b>관객</b> 투표하기</div></div>
+          <div class="url" id="url"></div></div>
+        <div class="qritem" id="q2" hidden><div class="qrbox alt"><div id="qr2"></div><div class="cap">🌟 <b>참가자</b> 설문</div></div>
+          <div class="url" id="url2"></div></div>
+      </div>
     </div>
   </div>
 </div>
@@ -68,11 +77,25 @@
   qr.addData(voteUrl); qr.make();
   document.getElementById("qr").innerHTML = qr.createSvgTag({ cellSize: 10, margin: 30, scalable: true });
   document.getElementById("url").textContent = voteUrl.replace(/^https?:\/\//, "");
+  const surveyUrl = location.origin + "/survey";
+  const qr2 = qrcode(0, "M"); qr2.addData(surveyUrl); qr2.make();
+  document.getElementById("qr2").innerHTML = qr2.createSvgTag({ cellSize: 10, margin: 30, scalable: true });
+  document.getElementById("url2").textContent = surveyUrl.replace(/^https?:\/\//, "");
+  const guide = document.querySelector(".guide"), guideVote = guide.innerHTML, q2 = document.getElementById("q2"), qrcap = document.getElementById("qrcap");
   if (configMissing()) return;
   const label = document.getElementById("label"), team = document.getElementById("team");
   poll(async () => {
-    const teams = await rpc("get_state", {}, 1) || [];
-    const open = teams.filter((t) => t.status === "open");
+    const st = await getState();
+    const open = st.teams.filter((t) => t.status === "open");
+    const survey = st.survey && !open.length;
+    document.body.classList.toggle("two", survey); q2.hidden = !survey;
+    qrcap.innerHTML = survey ? "📱 <b>관객</b> 설문" : "📱 <b>관객</b> 투표하기";
+    guide.innerHTML = survey ? "오늘 행사 어떠셨나요?<br><em>사후 만족도 조사</em>에 참여해 주세요!" : guideVote;
+    if (survey) {
+      label.textContent = "사후 만족도 조사"; label.classList.remove("wait");
+      team.textContent = "1분 설문 참여해 주세요!"; team.classList.remove("wait");
+      return;
+    }
     if (open.length) {
       label.textContent = "지금 투표 중"; label.classList.remove("wait");
       team.textContent = open.map((t) => t.name).join(", "); team.classList.remove("wait");

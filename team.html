@@ -25,7 +25,7 @@
   async function showLogin(msg) {
     me = null; store("gs_team", null);
     let teams = [];
-    try { teams = await rpc("get_state") || []; } catch {}
+    try { teams = (await getState()).teams; } catch {}
     app.innerHTML = `
       <div class="card">
         <h2>팀 로그인</h2>
@@ -65,7 +65,8 @@
     if (b) b.onclick = () => { if (confirm("로그아웃할까요?")) { store("gs_team", null); location.reload(); } };
   }
 
-  function render(teams) {
+  function render(st) {
+    const teams = st.teams;
     const others = teams.filter((t) => t.id !== me.id);
     const progress = `${others.filter((t) => voted.has(t.id)).length} / ${others.length}팀 투표 완료`;
     const open = teams.filter((t) => t.status === "open");
@@ -92,7 +93,7 @@
     }
     currentTarget = null;
     const mine = open.some((t) => t.id === me.id);
-    const view = (mine ? "mine" : open.length ? "voted" : "wait") + progress;
+    const view = (mine ? "mine" : open.length ? "voted" : "wait") + progress + (st.survey ? "s" : "");
     if (view === lastView) return;
     lastView = view;
     const body = mine
@@ -100,7 +101,11 @@
       : open.length
       ? `<div class="big-emoji">✨</div><h2>투표 완료!</h2><p class="muted">다음 무대가 시작되면 자동으로 투표창이 열려요.</p>`
       : `<div class="big-emoji">🎬</div><h2>다음 무대를 기다리는 중</h2><p class="muted">무대가 시작되면 자동으로 투표창이 열려요.</p>`;
-    app.innerHTML = header() + `<div class="card done">${body}<p style="margin-top:14px"><b>${progress}</b></p></div>`;
+    const surveyCard = st.survey ? `<div class="card center" style="border:2px solid var(--purple)">
+        <div style="font-size:34px">📝</div><h2 style="margin:4px 0">참가자 만족도 조사</h2>
+        <p class="muted" style="margin:0 0 12px">대표님도 팀원과 함께 참여해 주세요!</p>
+        <a class="btn primary big" href="survey?team=${encodeURIComponent(me.id)}">설문하러 가기</a></div>` : "";
+    app.innerHTML = header() + surveyCard + `<div class="card done">${body}<p style="margin-top:14px"><b>${progress}</b></p></div>`;
     bindLogout();
   }
 
@@ -109,7 +114,7 @@
     if (refresher) { refresher.now(); return; }
     refresher = poll(async () => {
       if (!me) return;
-      render(await rpc("get_state", {}, 1) || []);
+      render(await getState());
     }, 4000);
   }
 

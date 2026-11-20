@@ -9,7 +9,7 @@
 <body>
 <main class="wrap">
   <img class="banner" src="banner.jpg" alt="금정구청소년 어울림마당 금샘런웨이페스타 · 2026.11.21(토) 14:00 · 온천천 어울마당">
-  <header class="brand"><div class="sub"><span>관객 투표</span></div></header>
+  <header class="brand"><div class="sub"><span id="sub">관객 투표</span></div></header>
   <div id="app"><div class="card center muted">불러오는 중…</div></div>
 </main>
 <script src="config.js"></script>
@@ -18,50 +18,75 @@
 (async function () {
   if (configMissing()) return showConfigError();
   const app = document.getElementById("app");
+  const sub = document.getElementById("sub");
   const dev = deviceId();
   let voted = new Set(store("gs_voted") || []);
-  let currentTarget = null;   // 지금 화면에 띄운 투표 대상
-  let lastView = "";
+  let surveyDone = !!store("gs_survey_resident");
+  let view = "";   // 지금 띄운 화면 (같은 화면이면 다시 그리지 않음 → 입력 중인 값 유지)
 
   try { (await rpc("resident_my_votes", { p_device: dev }) || []).forEach((id) => voted.add(id)); } catch {}
+  try { const m = await rpc("survey_my", { p_device: dev }); if (m && m.resident) surveyDone = true; } catch {}
   const saveVoted = () => store("gs_voted", [...voted]);
 
-  function render(teams) {
-    const open = teams.filter((t) => t.status === "open");
-    const target = open.find((t) => !voted.has(t.id));
-    if (target) {
-      if (currentTarget === target.id) return;     // 입력 중이면 그대로 둠
-      currentTarget = target.id; lastView = "form";
-      app.innerHTML = `
-        <div class="card now"><div class="label">지금 무대</div><div class="team">${esc(target.name)}</div></div>
-        <div class="card"><div id="form"></div></div>`;
-      buildScoreForm(document.getElementById("form"), async (c, e) => {
-        let r;
-        try { r = await rpc("resident_vote", { p_team: target.id, p_device: dev, p_c: c, p_e: e }); }
-        catch (err) { toast("전송 실패. 신호를 확인하고 다시 눌러 주세요."); return; }
-        if (r === "ok" || r === "already") {
-          voted.add(target.id); saveVoted();
-          toast(r === "ok" ? "투표 완료! 감사합니다 👏" : "이미 투표한 팀이에요");
-        } else if (r === "closed") toast("이 팀 투표가 마감되었어요");
-        else if (r === "no_team") toast("팀 정보가 바뀌었어요");
-        else toast("점수를 다시 확인해 주세요");
-        currentTarget = null; refresher.now();
-      });
-      return;
-    }
-    currentTarget = null;
-    const justVoted = open.length > 0;
-    const view = justVoted ? "voted" : "wait";
-    if (view === lastView) return;
-    lastView = view;
-    app.innerHTML = justVoted
-      ? `<div class="card done"><div class="big-emoji">✨</div><h2>투표 완료!</h2>
-           <p class="muted">다음 팀 무대가 시작되면<br>이 화면에 자동으로 투표창이 열려요.<br>화면을 켜 두세요.</p></div>`
-      : `<div class="card done"><div class="big-emoji">🎬</div><h2>다음 무대를 기다리는 중</h2>
-           <p class="muted">무대가 시작되면 투표창이 자동으로 열려요.<br>이 화면을 켜 두세요.</p></div>`;
+  function show(key, html, after) {
+    if (view === key) return false;
+    view = key; app.innerHTML = html; if (after) after();
+    return true;
   }
 
-  const refresher = poll(async () => render(await rpc("get_state", {}, 1) || []), 5000);
+  function render(st) {
+    const open = st.teams.filter((t) => t.status === "open");
+    const target = open.find((t) => !voted.has(t.id));
+
+    // 1) 진행 중인 무대 투표가 먼저
+    if (target) {
+      sub.textContent = "관객 투표";
+      return show("vote:" + target.id, `
+        <div class="card now"><div class="label">지금 무대</div><div class="team">${esc(target.name)}</div></div>
+        <div class="card"><div id="form"></div></div>`, () =>
+        buildScoreForm(document.getElementById("form"), async (c, e) => {
+          let r;
+          try { r = await rpc("resident_vote", { p_team: target.id, p_device: dev, p_c: c, p_e: e }); }
+          catch { toast("전송 실패. 신호를 확인하고 다시 눌러 주세요."); return; }
+          if (r === "ok" || r === "already") {
+            voted.add(target.id); saveVoted();
+            toast(r === "ok" ? "투표 완료! 감사합니다 👏" : "이미 투표한 팀이에요");
+          } else if (r === "closed") toast("이 팀 투표가 마감되었어요");
+          else if (r === "no_team") toast("팀 정보가 바뀌었어요");
+          else toast("점수를 다시 확인해 주세요");
+          view = ""; refresher.now();
+        }));
+    }
+
+    // 2) 사후 만족도 설문
+    if (st.survey) {
+      sub.textContent = "사후 만족도 조사";
+      if (surveyDone) return show("survey-done", `<div class="card done"><div class="big-emoji">💖</div><h2>설문 참여 감사합니다!</h2>
+        <p class="muted">오늘 금샘런웨이페스타를 함께해 주셔서 고마워요.</p></div>`);
+      return show("survey", `
+        <div class="card survey-head"><div class="label">SURVEY</div><h2>${SURVEY.resident.title}</h2>
+          <p class="muted" style="margin:0;font-size:14px">1분이면 끝나요! 더 좋은 행사를 만드는 데 쓰입니다.</p></div>
+        <div class="card"><div id="sform"></div></div>`, () =>
+        buildSurveyForm(document.getElementById("sform"), "resident", async (a, comment) => {
+          let r;
+          try { r = await rpc("survey_submit", { p_kind: "resident", p_team: null, p_device: dev,
+                  p_q1: a[0], p_q2: a[1], p_q3: a[2], p_q4: a[3], p_comment: comment }); }
+          catch { toast("전송 실패. 신호를 확인하고 다시 눌러 주세요."); return; }
+          toast(surveyResultMsg(r));
+          if (r === "ok" || r === "already") { surveyDone = true; store("gs_survey_resident", true); }
+          if (r !== "invalid") { view = ""; refresher.now(); }
+        }));
+    }
+
+    // 3) 대기 화면
+    sub.textContent = "관객 투표";
+    if (open.length) return show("voted", `<div class="card done"><div class="big-emoji">✨</div><h2>투표 완료!</h2>
+      <p class="muted">다음 팀 무대가 시작되면<br>이 화면에 자동으로 투표창이 열려요.<br>화면을 켜 두세요.</p></div>`);
+    return show("wait", `<div class="card done"><div class="big-emoji">🎬</div><h2>다음 무대를 기다리는 중</h2>
+      <p class="muted">무대가 시작되면 투표창이 자동으로 열려요.<br>이 화면을 켜 두세요.</p></div>`);
+  }
+
+  const refresher = poll(async () => render(await getState()), 5000);
 })();
 </script>
 </body>

@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>금샘런웨이페스타 · 참가자 설문</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main class="wrap">
+  <img class="banner" src="banner.jpg" alt="금정구청소년 어울림마당 금샘런웨이페스타 · 2026.11.21(토) 14:00 · 온천천 어울마당">
+  <header class="brand"><div class="sub"><span>참가자 만족도 조사</span></div></header>
+  <div id="app"><div class="card center muted">불러오는 중…</div></div>
+</main>
+<script src="config.js"></script>
+<script src="common.js"></script>
+<script>
+(async function () {
+  if (configMissing()) return showConfigError();
+  const app = document.getElementById("app");
+  const dev = deviceId();
+  const qTeam = new URLSearchParams(location.search).get("team");
+  if (qTeam) store("gs_myteam", qTeam);
+  let done = !!store("gs_survey_team");
+  let view = "", teamsKey = "";
+  try { const m = await rpc("survey_my", { p_device: dev }); if (m && m.team) done = true; } catch {}
+
+  function render(st) {
+    if (done) {
+      if (view === "done") return;
+      view = "done";
+      app.innerHTML = `<div class="card done"><div class="big-emoji">💖</div><h2>설문 참여 감사합니다!</h2>
+        <p class="muted">멋진 무대 보여줘서 고마워요. 수고 많았어요!</p></div>`;
+      return;
+    }
+    if (!st.survey) {
+      if (view === "wait") return;
+      view = "wait";
+      app.innerHTML = `<div class="card done"><div class="big-emoji">📝</div><h2>설문 준비 중</h2>
+        <p class="muted">행사가 끝나면 이 화면에 설문이 자동으로 열려요.<br>화면을 켜 두세요.</p></div>`;
+      return;
+    }
+    const key = st.teams.map((t) => t.id + t.name).join("|");
+    if (view === "form" && key === teamsKey) return;   // 입력 중이면 그대로
+    const keepTeam = document.getElementById("myteam")?.value || store("gs_myteam") || "";
+    view = "form"; teamsKey = key;
+    app.innerHTML = `
+      <div class="card survey-head"><div class="label">SURVEY</div><h2>${SURVEY.team.title}</h2>
+        <p class="muted" style="margin:0;font-size:14px">팀원 모두 각자 휴대폰으로 참여해 주세요!</p></div>
+      <div class="card">
+        <label class="f" style="margin-top:0">우리 팀</label>
+        <select id="myteam" class="text">
+          <option value="">팀을 선택하세요</option>
+          ${st.teams.map((t) => `<option value="${t.id}">${esc(t.name)}</option>`).join("")}
+        </select>
+        <div id="sform" style="margin-top:14px"></div>
+      </div>`;
+    const sel = document.getElementById("myteam");
+    if (st.teams.some((t) => t.id === keepTeam)) sel.value = keepTeam;
+    sel.addEventListener("change", () => store("gs_myteam", sel.value));
+    buildSurveyForm(document.getElementById("sform"), "team", async (a, comment) => {
+      if (!sel.value) { toast("우리 팀을 먼저 선택해 주세요"); sel.focus(); return; }
+      let r;
+      try { r = await rpc("survey_submit", { p_kind: "team", p_team: sel.value, p_device: dev,
+              p_q1: a[0], p_q2: a[1], p_q3: a[2], p_q4: a[3], p_comment: comment }); }
+      catch { toast("전송 실패. 신호를 확인하고 다시 눌러 주세요."); return; }
+      toast(surveyResultMsg(r));
+      if (r === "ok" || r === "already") { done = true; store("gs_survey_team", true); }
+      if (r === "ok" || r === "already" || r === "closed") { view = ""; refresher.now(); }
+    });
+  }
+
+  const refresher = poll(async () => render(await getState()), 5000);
+})();
+</script>
+</body>
+</html>

@@ -20,7 +20,7 @@
   if (configMissing()) return showConfigError();
   const app = document.getElementById("app");
   let pw = sessionStorage.getItem("gs_admin") || "";
-  let teams = [], results = [], started = false;
+  let teams = [], results = [], survey = null, started = false;
 
   const STATUS = { waiting: "대기", open: "투표 중", closed: "마감" };
   const AWARDS = ["대상", "최우수상", "우수상"];
@@ -76,6 +76,7 @@
           <h2>참가팀 · 투표 진행</h2>
           <div class="toolbar" style="margin-bottom:10px">
             <input id="newname" class="text" style="flex:1;min-width:0" placeholder="새 팀 이름">
+            <input id="newmem" class="text" style="width:96px" type="number" inputmode="numeric" min="0" max="999" placeholder="인원">
             <button id="add" class="btn primary">팀 추가</button>
           </div>
           <div class="toolbar two" style="margin-bottom:6px">
@@ -101,10 +102,22 @@
           </details>
           <div class="toolbar" style="margin-top:12px">
             <button id="csv" class="btn sm">⬇ 결과 CSV(엑셀) 저장</button>
-            <button id="reset" class="btn sm danger">리허설용: 전체 투표 초기화</button>
+            <button id="reset" class="btn sm danger">리허설용: 전체 투표·설문 초기화</button>
           </div>
         </section>
-      </div>`;
+      </div>
+      <section class="card" id="survey-card">
+        <div class="sv-top">
+          <h2 style="margin:0">📝 사후 만족도 조사</h2>
+          <span id="sv-status" class="badge waiting">대기</span>
+          <div class="toolbar" style="margin-left:auto">
+            <button id="sv-toggle" class="btn primary">▶ 사후설문 시작</button>
+            <button id="sv-csv" class="btn sm">⬇ 설문 CSV(엑셀) 저장</button>
+          </div>
+        </div>
+        <p class="muted" style="font-size:12px;margin:6px 0 0">시작하면 관객 화면(QR)에는 관객 설문이, 참가자 설문 주소(<a href="survey" target="_blank">${base}/survey</a>)와 팀 대표 화면에는 참가팀 설문이 자동으로 뜹니다. 무대 투표가 진행 중이면 관객에게는 투표가 먼저 보여요. 송출 화면에는 참가자 설문 QR이 함께 나옵니다.</p>
+        <div id="survey"></div>
+      </section>`;
 
     document.getElementById("copyurl").onclick = async () => {
       try { await navigator.clipboard.writeText(base + "/team"); toast("복사됨: " + base + "/team"); }
@@ -122,11 +135,13 @@
       const inp = document.getElementById("newname");
       const name = inp.value.trim();
       if (!name) return;
-      const r = await adm("admin_add_team", { p_name: name });
-      inp.value = ""; toast(`${r.name} 추가 · 코드 ${r.code}`, 3500); refresh();
+      const mem = parseInt(document.getElementById("newmem").value, 10);
+      const r = await adm("admin_add_team", { p_name: name, p_members: Number.isFinite(mem) && mem > 0 ? mem : 0 });
+      inp.value = ""; document.getElementById("newmem").value = ""; inp.focus(); toast(`${r.name} 추가 · 코드 ${r.code}`, 3500); refresh();
     };
     document.getElementById("add").onclick = addTeam;
     document.getElementById("newname").addEventListener("keydown", (e) => { if (e.key === "Enter") addTeam(); });
+    document.getElementById("newmem").addEventListener("keydown", (e) => { if (e.key === "Enter") addTeam(); });
     document.getElementById("next").onclick = async () => {
       const open = teams.find((t) => t.status === "open");
       const startIdx = open ? teams.indexOf(open) + 1 : 0;
@@ -142,6 +157,14 @@
       toast("마감했어요"); refresh();
     };
     document.getElementById("csv").onclick = downloadCsv;
+    document.getElementById("sv-toggle").onclick = async () => {
+      const open = !!(survey && survey.open);
+      if (!open && teams.some((t) => t.status === "open") && !confirm("아직 무대 투표가 진행 중이에요. 관객에게는 투표가 끝난 뒤 설문이 보입니다. 설문을 시작할까요?")) return;
+      if (open && !confirm("설문을 종료할까요? 종료 후에는 응답을 받지 않습니다. (다시 시작 가능)")) return;
+      await adm("admin_set_survey", { p_open: !open });
+      toast(open ? "설문 종료" : "사후설문 시작!"); refresh();
+    };
+    document.getElementById("sv-csv").onclick = downloadSurveyCsv;
     document.getElementById("padd").onclick = async () => {
       const team = document.getElementById("pteam").value;
       const pc = document.getElementById("pc"), pe = document.getElementById("pe");
@@ -155,7 +178,7 @@
       toast(`${name}에 종이 투표 ${c + e}점 입력됨`); refresh();
     };
     document.getElementById("reset").onclick = async () => {
-      if (!confirm("모든 투표를 지우고 팀 상태를 '대기'로 되돌립니다. (팀 목록·코드는 유지)\n리허설 후에만 사용하세요. 진행할까요?")) return;
+      if (!confirm("모든 투표와 설문 응답을 지우고 팀 상태를 '대기'로 되돌립니다. (팀 목록·코드·인원은 유지)\n리허설 후에만 사용하세요. 진행할까요?")) return;
       if (prompt("확인을 위해 '초기화'라고 입력하세요") !== "초기화") return;
       await adm("admin_reset_votes"); toast("초기화 완료"); refresh();
     };
@@ -164,9 +187,11 @@
 
   async function refresh() {
     if (!pw || !document.getElementById("teams")) return;
-    [teams, results] = await Promise.all([adm("admin_teams"), adm("admin_results")]);
-    teams = teams || []; results = results || [];
-    renderTeams(); renderResults(); renderPaperSelect();
+    let sv;
+    [teams, results, sv] = await Promise.all([adm("admin_teams"), adm("admin_results"),
+      rpc("admin_survey_results", { p_pw: pw }, 1).catch(() => null)]);
+    teams = teams || []; results = results || []; survey = sv;
+    renderTeams(); renderResults(); renderPaperSelect(); renderSurvey();
   }
 
   function renderPaperSelect() {
@@ -204,7 +229,7 @@
         </div>
         <div class="tmain">
           <div class="tname"><span class="tno">${i + 1}</span><b>${esc(t.name)}</b> <span class="badge ${t.status}">${STATUS[t.status]}</span></div>
-          <div class="tmeta"><span>코드 <span class="code">${esc(t.code)}</span></span><span>받은 표 팀 ${t.team_count} · 관객 ${t.res_count}</span><span>투표함 ${t.team_voted}/${n - 1}</span></div>
+          <div class="tmeta"><span>코드 <span class="code">${esc(t.code)}</span></span><span>받은 표 팀 ${t.team_count} · 관객 ${t.res_count}</span><span>투표함 ${t.team_voted}/${n - 1}</span><span>인원 ${t.members ? t.members + "명" : "미입력"}${survey && (survey.open || t.survey_count) ? ` · 설문 ${t.survey_count ?? 0}${t.members ? "/" + t.members : "명"}` : ""}</span></div>
           ${t.status === "closed" && missingFor(t) && missingFor(t).length ? `<div class="tmiss">미투표: ${missingFor(t).map((o) => esc(o.name)).join(", ")}</div>` : ""}
         </div>
         <div class="row-actions">
@@ -212,6 +237,7 @@
             ? `<button class="btn sm" data-st="closed" data-id="${t.id}">마감</button>`
             : `<button class="btn sm primary" data-st="open" data-id="${t.id}">${t.status === "closed" ? "다시 열기" : "시작"}</button>`}
           <button class="btn sm ghost" data-rn="${t.id}">이름</button>
+          <button class="btn sm ghost" data-mem="${t.id}">인원</button>
           <button class="btn sm danger" data-del="${t.id}">삭제</button>
         </div>
       </div>`).join("")}</div>`;
@@ -226,6 +252,14 @@
       const cnt = t.team_count + t.res_count;
       if (!confirm(`'${t.name}' 팀을 삭제할까요?${cnt ? `\n이 팀이 받은 표 ${cnt}개도 함께 삭제됩니다.` : ""}`)) return;
       await adm("admin_delete_team", { p_id: t.id }); refresh();
+    });
+    el.querySelectorAll("[data-mem]").forEach((b) => b.onclick = async () => {
+      const t = teams.find((x) => x.id === b.dataset.mem);
+      const v = prompt(`'${t.name}' 팀원 수 (명)`, t.members || "");
+      if (v === null) return;
+      const m = parseInt(v, 10);
+      if (!Number.isFinite(m) || m < 0) return toast("숫자로 입력해 주세요");
+      await adm("admin_set_members", { p_id: t.id, p_members: m }); refresh();
     });
     el.querySelectorAll("[data-rn]").forEach((b) => b.onclick = async () => {
       const t = teams.find((x) => x.id === b.dataset.rn);
@@ -265,6 +299,84 @@
         <td class="num final">${fmt(r.final)}</td>
       </tr>`).join("")}</tbody></table>
       ${rows.some((r) => !r.team_count || !r.res_count) ? `<p class="warn">※ 표가 0개인 항목은 0점으로 계산됩니다.</p>` : ""}`;
+  }
+
+  const SV_LABEL = { team: "참가팀", resident: "관객" };
+  function renderSurvey() {
+    const el = document.getElementById("survey");
+    if (!el) return;
+    const st = document.getElementById("sv-status"), tg = document.getElementById("sv-toggle");
+    if (!survey) {
+      el.innerHTML = `<p class="warn">설문 기능을 쓰려면 Supabase에서 새 supabase.sql을 한 번 더 실행해 주세요.</p>`;
+      tg.disabled = true; return;
+    }
+    tg.disabled = false;
+    st.className = "badge " + (survey.open ? "open" : "waiting");
+    st.textContent = survey.open ? "진행 중" : "대기";
+    tg.className = survey.open ? "btn" : "btn primary";
+    tg.textContent = survey.open ? "■ 설문 종료" : "▶ 사후설문 시작";
+    if (el.contains(document.activeElement)) return;
+    const K = survey.kinds || {};
+    const totalMem = survey.by_team.reduce((a, t) => a + (t.members || 0), 0);
+    const teamN = (K.team && K.team.n) || 0, resN = (K.resident && K.resident.n) || 0;
+    const block = (kind) => {
+      const k = K[kind] || { n: 0, avg: [null, null, null, null], dist: [[0,0,0,0,0],[0,0,0,0,0],[0,0,0,0,0],[0,0,0,0,0]], comments: [] };
+      const qs = SURVEY[kind].qs;
+      return `<div class="sv-block">
+        <h3>${SV_LABEL[kind]} 설문 <span class="muted">응답 ${k.n}명</span></h3>
+        ${qs.map((q, i) => {
+          const d = k.dist[i] || [0,0,0,0,0], tot = d.reduce((a, b) => a + b, 0) || 1;
+          const sat = d[3] + d[4];
+          return `<div class="sv-q">
+            <div class="sv-qt"><span>${i + 1}. ${q}</span><b>${k.avg[i] == null ? "-" : Number(k.avg[i]).toFixed(2)}<small>/5</small></b></div>
+            <div class="sv-bar" title="매우 그렇다 ${d[4]} · 그렇다 ${d[3]} · 보통 ${d[2]} · 그렇지 않다 ${d[1]} · 전혀 ${d[0]}">
+              ${[4,3,2,1,0].map((g) => d[g] ? `<span class="g${g + 1}" style="width:${(d[g] / tot) * 100}%">${d[g]}</span>` : "").join("")}
+            </div>
+            <div class="sv-sat muted">만족(그렇다 이상) ${k.n ? Math.round((sat / k.n) * 100) : 0}%</div>
+          </div>`;
+        }).join("")}
+        <details class="sv-cm"><summary>주관식 ${k.comments.length}개 보기</summary>
+          ${k.comments.length ? `<ul>${k.comments.map((c) => `<li>${kind === "team" && c.team ? `<b>[${esc(c.team)}]</b> ` : ""}${esc(c.text)}</li>`).join("")}</ul>` : `<p class="muted">아직 없어요</p>`}
+        </details>
+      </div>`;
+    };
+    el.innerHTML = `
+      <div class="sv-sum">
+        <div><div class="muted">관객 응답</div><b>${resN}</b>명</div>
+        <div><div class="muted">참가자 응답</div><b>${teamN}</b>${totalMem ? `<small> / ${totalMem}명 (${Math.round((teamN / totalMem) * 100)}%)</small>` : "명"}</div>
+      </div>
+      <div class="sv-teams">${survey.by_team.map((t) => {
+        const done = t.members && t.n >= t.members;
+        return `<span class="chip ${done ? "ok" : ""}">${esc(t.name)} <b>${t.n}${t.members ? "/" + t.members : ""}</b></span>`;
+      }).join("") || `<span class="muted">팀이 없어요</span>`}</div>
+      <div class="sv-legend"><span class="g5">매우 그렇다</span><span class="g4">그렇다</span><span class="g3">보통</span><span class="g2">그렇지 않다</span><span class="g1">전혀 그렇지 않다</span></div>
+      <div class="grid2 sv-grid">${block("team")}${block("resident")}</div>`;
+  }
+
+  async function downloadSurveyCsv() {
+    const rows = await adm("admin_survey_rows") || [];
+    if (!rows.length) return toast("아직 응답이 없어요");
+    const head = ["구분", "팀", "응답시각"];
+    const out = [];
+    for (const kind of ["team", "resident"]) {
+      const qs = SURVEY[kind].qs;
+      out.push([`[${SV_LABEL[kind]} 설문] 문항`, ...qs.map((q, i) => `${i + 1}. ${q}`), `5. ${SURVEY[kind].comment}`]);
+    }
+    out.push([]);
+    out.push([...head, "문항1", "문항2", "문항3", "문항4", "문항5(주관식)"]);
+    rows.forEach((r) => out.push([SV_LABEL[r.kind], r.team || "", new Date(r.at).toLocaleString("ko-KR"), r.q1, r.q2, r.q3, r.q4, r.comment || ""]));
+    out.push([]);
+    out.push(["※ 점수: 5=매우 그렇다, 4=그렇다, 3=보통, 2=그렇지 않다, 1=전혀 그렇지 않다"]);
+    saveCsv(out, "사후설문");
+  }
+
+  function saveCsv(rows, label) {
+    const csv = rows.map((row) => row.map((v) => `"${String(v ?? "").replace(/"/g, '""')}"`).join(",")).join("\r\n");
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8" }));
+    const d = new Date();
+    a.download = `금샘런웨이페스타_${label}_${d.getMonth() + 1}${String(d.getDate()).padStart(2, "0")}_${String(d.getHours()).padStart(2, "0")}${String(d.getMinutes()).padStart(2, "0")}.csv`;
+    a.click();
   }
 
   function downloadCsv() {
